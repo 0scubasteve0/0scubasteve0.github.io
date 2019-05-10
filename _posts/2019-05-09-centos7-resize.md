@@ -1,7 +1,7 @@
 ---
 layout: single
 title:  "Resize a Centos 7 Virtual Machine in KVM/QEMU"
-date:   2019-05-07 22:45:00
+date:   2019-05-09 22:45:00
 categories: [Linux Administration]
 tags: linux kvm zfs virtualization vm ubuntu
 comments: true
