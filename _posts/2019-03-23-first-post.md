@@ -34,7 +34,7 @@ What's any project if not an excuse to buy new hardware? Below is what I'll be w
   * Ubiquiti EdgeRouter X
   * Ubiquiti CloudKey Gen1
   * Ubiquiti Unfifi AC-LR Access Point
-  * Raspberry Pi Model B - *Raspbian + PiHole*
+  * Raspberry Pi Model B - *Raspbian + PiHole* (I should update this to the Pi 4!)
 
 As you can see, I've done some of the configuration already, but I'm planning on writing a future blog post on both KVM and ZFS configuration under Ubuntu. Ubiquiti and wireless networking won't be a focus of this blog, but I'll probbably throw in a few bonus posts as I go.  
 
