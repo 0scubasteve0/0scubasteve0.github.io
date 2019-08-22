@@ -1,0 +1,162 @@
+I".<p>Being relatively new to the RHEL/Centos world, it’s safe to say I’m learning a lot as I go. While Linux is mostly, well, <em>Linux</em> between distributions, each one has its own particular nuances.</p>
+
+<p>One of these nuances bit me last weekend on a new Centos 7 VM. I was spinning up a <a href="https://www.borgbackup.org/">borg-backup</a> server to back up my roughly 50GB <a href="https://nextcloud.com/">Nextcloud</a> instance, so I provisioned a 160GB qcow2 image to give it adequate wiggle room. After logging in for the first time post-install, I was dismayed to see only 100GB available for backup. It turns out that Centos 7 default paritioning included separate <code class="highlighter-rouge">/</code> and <code class="highlighter-rouge">/home</code> partitions, and allocated a whole 50GB for root. What good is 50GB going to do me when all I’m instaling is borg?</p>
+
+<p>One additional differentiator of RHEL/Centos from Ubuntu is the use of <a href="https://wiki.archlinux.org/index.php/XFS">XFS</a> as the default filesystem. XFS is a solid, feature-packed filesystem, but one thing it can’t do is shrink. This ruled out shrinking <code class="highlighter-rouge">/</code> and expanding <code class="highlighter-rouge">/home</code>, so I decided to eat my mistake and just expand the whole VM. Below is the process for future reference.</p>
+
+<h2 id="extend-the-qcow2-image">Extend the QCOW2 Image</h2>
+
+<p>Shut down your VM</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>poweroff
+</code></pre></div></div>
+
+<p><br />
+SSH into your host machine and run the <code class="highlighter-rouge">qemu-img</code> tool on your VM guest image. I added an additional 100GB in the example below.</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>qemu-img resize /path/to/image.qcow2 +100G
+Image resized.
+</code></pre></div></div>
+
+<h2 id="extend-the-partition">Extend the Partition</h2>
+
+<p>Since resizing root LVM paritions can be difficult from a running system, we’re going to boot into a live environment for the remaining steps. You can use any Linux live environment for this, but I’ll be using <a href="https://gparted.org/">GParted</a> to keep things simple.</p>
+
+<p>Open up virt-manager and load the GParted ISO into the VM’s optical drive, then click Apply.</p>
+
+<p><img src="/assets/images/screenshots/resize01.png" alt="resize01" class="img-responsive" /></p>
+
+<p><br />
+Select Boot Options and enable the optical drive before moving it to first in the boot order, then click Apply.</p>
+
+<p><img src="/assets/images/screenshots/resize02.png" alt="resize02" class="img-responsive" /></p>
+
+<p><br />
+Start your VM and follow the prompts to boot into the GParted live environment. You should notice the extra space you added as “unallocated”.</p>
+
+<p><img src="/assets/images/screenshots/gparted01.png" alt="gparted01" class="img-responsive" /></p>
+
+<p><br />
+Select the LVM parition and click on Resize/Move.</p>
+
+<p><img src="/assets/images/screenshots/gparted02.png" alt="gparted02" class="img-responsive" /></p>
+
+<p><br />
+Drag the slider to fill in the remaining space and click Resize.</p>
+
+<p><img src="/assets/images/screenshots/gparted03.png" alt="gparted03" class="img-responsive" /></p>
+
+<p><br />
+Click Apply.</p>
+
+<p><img src="/assets/images/screenshots/gparted04.png" alt="gparted04" class="img-responsive" /></p>
+
+<p><img src="/assets/images/screenshots/gparted05.png" alt="gparted05" class="img-responsive" /></p>
+
+<h2 id="extend-the-logical-volume">Extend the Logical Volume</h2>
+
+<p>Close/minimize GParted and open the Terminal in the live environment.</p>
+
+<p><img src="/assets/images/screenshots/gparted06.png" alt="gparted06" class="img-responsive" /></p>
+
+<p><br />
+We have to help the live environment disover the logical volumes. You’ll be able to use <code class="highlighter-rouge">sudo</code> without a password in all the following commands.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>pvscan
+PV /dev/vda2   VG centos          lvm2 <span class="o">[</span>&lt;259.00 GiB / 100.00 GiB free]
+Total: 1 <span class="o">[</span>&lt;259.00 GiB] / <span class="k">in </span>use: 1 <span class="o">[</span>&lt;259.00 GiB] / <span class="k">in </span>no VG: 0 <span class="o">[</span>0   <span class="o">]</span>
+</code></pre></div></div>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>vgscan
+Reading volume <span class="nb">groups </span>from cache.
+Found volume group <span class="s2">"centos"</span> using metadata <span class="nb">type </span>lvm2
+</code></pre></div></div>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>vgdisplay
+  <span class="nt">---</span> Volume group <span class="nt">---</span>
+  VG Name               centos
+  System ID
+  Format                lvm2
+  Metadata Areas        1
+  Metadata Sequence No  5
+  VG Access             <span class="nb">read</span>/write
+  VG Status             resizable
+  MAX LV                0
+  Cur LV                3
+  Open LV               0
+  Max PV                0
+  Cur PV                1
+  Act PV                1
+  VG Size               &lt;259.00 GiB
+  PE Size               4.00 MiB
+  Total PE              66303
+  Alloc PE / Size       40702 / 158.99 GiB
+  Free  PE / Size       25601 / 100.00 GiB
+  VG UUID               r8vEjh-ZHBf-WWfi-lBSb-xfSd-HiTy-02TPMe
+</code></pre></div></div>
+
+<p><br />
+You can see from the above information that our Volume Group is resizable and has 100GB available for expansion. Take note of the number after “Free PE / Size”.<br />
+<br />
+Let’s confirm our available volumes.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>lvs
+  LV   VG     Attr       LSize   Pool Origin Data%  Meta%  Move Log Cpy%Sync Convert
+  home centos <span class="nt">-wi-a-----</span> 106.99g                                                    
+  root centos <span class="nt">-wi-a-----</span>  50.00g                                                    
+  swap centos <span class="nt">-wi-a-----</span>   2.00g 
+</code></pre></div></div>
+
+<p><br />
+Now we’ll use the <code class="highlighter-rouge">lvextend</code> tool tool to expand our <code class="highlighter-rouge">/home</code> volume. The number noted earlier from the <code class="highlighter-rouge">vgdisplay</code> command will be used to signify the size increase.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>lvextend <span class="nt">-l</span> +25601 /dev/centos/home
+  Size of logical volume centos/home changed from 106.99 GiB <span class="o">(</span>27390 extents<span class="o">)</span> to &lt;207.00 GiB <span class="o">(</span>52991 extents<span class="o">)</span><span class="nb">.</span>
+  Logical volume centos/home successfully resized.
+</code></pre></div></div>
+
+<h2 id="expand-the-filesystem">Expand the Filesystem</h2>
+
+<p>Since Centos 7 defaults to XFS, we’ll use the <code class="highlighter-rouge">xfs_growfs</code> tool. This requires the filesystem to be mounted first, so lets create a mount point and mount it there.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo mkdir</span> /mnt/home
+</code></pre></div></div>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>mount /dev/centos/home /mnt/home
+</code></pre></div></div>
+
+<p><br />
+Now run <code class="highlighter-rouge">xfs_growfs</code> to expand the filesystem into the available volume space.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>xfs_growfs /mnt/home
+meta-data<span class="o">=</span>/dev/mapper/centos-home <span class="nv">isize</span><span class="o">=</span>512    <span class="nv">agcount</span><span class="o">=</span>4, <span class="nv">agsize</span><span class="o">=</span>7011840 blks
+         <span class="o">=</span>                       <span class="nv">sectsz</span><span class="o">=</span>512   <span class="nv">attr</span><span class="o">=</span>2, <span class="nv">projid32bit</span><span class="o">=</span>1
+         <span class="o">=</span>                       <span class="nv">crc</span><span class="o">=</span>1        <span class="nv">finobt</span><span class="o">=</span>0 <span class="nv">spinodes</span><span class="o">=</span>0 <span class="nv">rmapbt</span><span class="o">=</span>0
+         <span class="o">=</span>                       <span class="nv">reflink</span><span class="o">=</span>0
+data     <span class="o">=</span>                       <span class="nv">bsize</span><span class="o">=</span>4096   <span class="nv">blocks</span><span class="o">=</span>28047360, <span class="nv">imaxpct</span><span class="o">=</span>25
+         <span class="o">=</span>                       <span class="nv">sunit</span><span class="o">=</span>0      <span class="nv">swidth</span><span class="o">=</span>0 blks
+naming   <span class="o">=</span>version 2              <span class="nv">bsize</span><span class="o">=</span>4096   ascii-ci<span class="o">=</span>0 <span class="nv">ftype</span><span class="o">=</span>1
+log      <span class="o">=</span>internal               <span class="nv">bsize</span><span class="o">=</span>4096   <span class="nv">blocks</span><span class="o">=</span>13695, <span class="nv">version</span><span class="o">=</span>2
+         <span class="o">=</span>                       <span class="nv">sectsz</span><span class="o">=</span>512   <span class="nv">sunit</span><span class="o">=</span>0 blks, lazy-count<span class="o">=</span>1
+realtime <span class="o">=</span>none                   <span class="nv">extsz</span><span class="o">=</span>4096   <span class="nv">blocks</span><span class="o">=</span>0, <span class="nv">rtextents</span><span class="o">=</span>0
+data blocks changed from 28047360 to 54262784
+</code></pre></div></div>
+
+<p><br />
+Confirm the new volume size.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">df</span> <span class="nt">-h</span>
+Filesystem               Size  Used Avail Use% Mounted on
+udev                     489M     0  489M   0% /dev
+/dev/sr0                 309M  309M     0 100% /run/live/medium
+/dev/loop0               269M  269M     0 100% /run/live/rootfs/filesystem.squashfs
+/dev/mapper/centos-home  207G   44G  164G  21% /mnt/home
+</code></pre></div></div>
+<p>You can see that your <code class="highlighter-rouge">/home</code> volume is now ‘207GB’ total in size.</p>
+
+<p>Power off your VM and be sure to remove the optical drive from the boot list in <code class="highlighter-rouge">virt-manager</code> before booting into your Centos 7 install.</p>
+
+<p><br />
+That’s it! Please let me know via email or comment if you have a more efficient way to accomplish this. Going forward, the best thing to do is to set the desired paritioning at install time.</p>
+
+<p>Thanks for reading and happy hacking!</p>
+
+:ET

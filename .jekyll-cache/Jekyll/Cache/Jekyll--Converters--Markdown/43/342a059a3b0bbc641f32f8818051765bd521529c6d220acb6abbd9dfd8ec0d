@@ -1,0 +1,43 @@
+I"5<p>It doesn’t take long for me to get bored. I can only come home after work and watch Fraiser re-runs so many times before I get antsy- before I need a project.</p>
+
+<p>It was this very need that drove me to begin what I’m dubbing “The Linux Admin Project”. Over the next few months (or longer) I’m going to be completing a series of server builds, configurations, and excercies with the goal of making me a better Linux administrator.</p>
+
+<p>My inspiration, in part, was this <a href="https://www.reddit.com/r/linuxadmin/comments/2s924h/how_did_you_get_your_start/cnnw1ma?utm_source=share&amp;utm_medium=web2x">Reddit comment</a> by user <a href="https://www.reddit.com/user/IConrad">/u/IConrad</a>. According to the poster, if all steps in his list are completed, “you will be fully exposed to every aspect of Linux Enterprise systems administration.” After doing a lot of my own research and seeing his comment quoted on <a href="https://reddit.com/r/sysadmin">/r/sysadmin</a> more than once, I decided to use it as the foundation for this undertaking.</p>
+
+<h3 id="some-background">Some Background</h3>
+
+<p>Linux was first introduced to me in high school after I started tinkering with the <a href="https://en.wikipedia.org/wiki/Asus_Eee_PC">eeePC</a>: the cheap, tiny computer that would start the short-lived “Netbook” era (and eventually inspire Chromebooks). The whole idea of an alternative operating system fascinated me (“and they give it away for free?!?”) and soon enough I was trying to install it on everything.</p>
+
+<p>After years of distro-hopping and repeatedly attempting to make Desktop Linux my daily driver, I finally made the full-time switch in 2015 and haven’t looked back. I’m currently running <a href="https://getsol.us/home/">Solus</a> on all my desktop systems, but most of my experience lies in Ubuntu and derivative distros.</p>
+
+<p>Lately I’ve had more opportunities to get my feet wet with Linux servers- maintaining a <a href="https://nextcloud.com/">Nextlcoud</a> server for myself and some basic web-applications for work- and it’s made me more hungry to learn than ever before.</p>
+
+<h3 id="the-homelab">The Homelab</h3>
+
+<p>What’s any project if not an excuse to buy new hardware? Below is what I’ll be working with:</p>
+
+<ul>
+  <li>Dell PowerEdge T30 Tower
+    <ul>
+      <li>Ubuntu 18.04 Server - <em>Chosen mainly for the built-in ZFS support, running KVM hypervisor</em></li>
+      <li>Intel Xeon E3-1225 v5 3.3GHz Quad Core</li>
+      <li>128GB Crucial SSD - <em>OS install</em></li>
+      <li>(3) 4TB WD Red HDDs - <em>Configured in RAIDZ1 for fast and reliable VM storage</em></li>
+      <li>16GB DDR4 ECC RAM</li>
+    </ul>
+  </li>
+  <li>Ubiquiti EdgeRouter X</li>
+  <li>Ubiquiti CloudKey Gen1</li>
+  <li>Ubiquiti Unfifi AC-LR Access Point</li>
+  <li>Raspberry Pi Model B - <em>Raspbian + PiHole</em> (I should update this to the Pi 4!)</li>
+</ul>
+
+<p>As you can see, I’ve done some of the configuration already, but I’m planning on writing a future blog post on both KVM and ZFS configuration under Ubuntu. Ubiquiti and wireless networking won’t be a focus of this blog, but I’ll probbably throw in a few bonus posts as I go.</p>
+
+<h3 id="hows-my-driving">How’s my driving?</h3>
+
+<p>Your feedback on my work is more than welcome- it is desperately needed! I’m an un-checked wannabe Linux admin with root privileges and I’m almost certainly going to wreck some servers before this is over, so if you see me doing something blatantly wrong or just irresponsible, please chime in! Leave comments below the posts or send me an <a href="mailto:ray@raylyon.net">email</a>, either way I’ll definitely get back to you in short order. I’m happy to listen to critiques, answer questions, or just shoot the shit about Linux and tech. Let’s do this!</p>
+
+<p>Thanks for reading and Happy Hacking!</p>
+
+:ET

@@ -21,7 +21,7 @@ gem "minimal-mistakes-jekyll"
 #   gem "jekyll-sitemap"
 #   gem "jekyll-gist"
 #   gem "jekyll-feed"
-#   gem "jemoji"
+gem "jemoji"
 #   gem "jekyll-data"
 #   gem "jekyll-include-cache"
 #

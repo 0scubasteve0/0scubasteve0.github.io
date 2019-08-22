@@ -1,0 +1,340 @@
+I"�^<p>The ability to run several virtual servers in a single physical box is what makes it possible for businesses of all sizes to run complex applications with minimal cost and power usage. Most importantly, (arguable) it’s what enables people like me to learn and practice near real-world Linux administration in a one-bedroom Brooklyn apartment.</p>
+
+<p>The key to getting this working is a fast, reliable hypervisor. In this tutorial, we’re going to be setting up our virtual environment with KVM/QEMU as the hypervisor using ZFS for our VM storage.</p>
+
+<h3 id="the-tools">The Tools</h3>
+
+<ul>
+  <li><a href="https://www.ubuntu.com/download/server">Ubuntu 18.04 Server</a> - Our host OS, chosen due to its out-of-the-box support for the ZFS filesystem. I’m assuming you already have Ubuntu installed and have SSH access to the system.</li>
+  <li><a href="https://wiki.ubuntu.com/ZFS">ZFS Filesystem</a> - There are many on the web who can speak to the benefits of ZFS better than I can, but essentially ZFS is a ultra-reliable filesystem and logical volume manager with built-in software RAID, checksums, compression, and de-duplicaton. On top of that, it’s very straightforward to configure and manage.</li>
+  <li><a href="https://www.linux-kvm.org/page/Main_Page">KVM/QEMU</a> - Industry-standard, open-source, Linux-based VM hypervisor. Manageable from the CLI or any number of GUI applications (i.e. <a href="https://virt-manager.org/">virt-manager</a>)</li>
+</ul>
+
+<h3 id="sections-in-this-tutorial">Sections in this Tutorial</h3>
+
+<ol>
+  <li>Install &amp; Configure ZFS</li>
+  <li>Install &amp; Configure KVM/QEMU</li>
+  <li>Create a VM</li>
+  <li>Managing KVM via CLI</li>
+  <li>Managing KVM with virt-manager</li>
+  <li>Concluding thoughts</li>
+</ol>
+
+<h3 id="step-1-install--configure-zfs">Step 1: Install &amp; Configure ZFS</h3>
+
+<p>Below are the steps I used to configure a ZFS storage pool on my PowerEdge T30. On that system, I’m using (3) 4TB drives in a RAIDz1 array, allowing for one disk failure and providing more than adequate I/O performance. The RAID type you choose depends on a lot of factors, and I suggest you read one of the many articles about the benefits/drawbacks of the different types (<a href="https://en.wikipedia.org/wiki/ZFS#RAID_(%22RaidZ%22)">Wikipedia</a>). For the purpose of this guide, I’ll be using x3 4GB virtual disks in RAIDz1.</p>
+
+<p>First, update your repos and install the ZFS packages:</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>apt update
+</code></pre></div></div>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>apt <span class="nb">install </span>zfsutils-linux
+</code></pre></div></div>
+<p><br />
+Assuming you didn’t get an error message, ZFS should now be installed on your machine.</p>
+
+<p>Next, we need to get the names of the drives we’re going to use:</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>fdisk <span class="nt">-l</span>
+</code></pre></div></div>
+<p><br />
+You should see an output similar to this:</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Disk /dev/vda: 25 GiB, 26843545600 bytes, 52428800 sectors
+Units: sectors of 1 <span class="k">*</span> 512 <span class="o">=</span> 512 bytes
+Sector size <span class="o">(</span>logical/physical<span class="o">)</span>: 512 bytes / 512 bytes
+I/O size <span class="o">(</span>minimum/optimal<span class="o">)</span>: 512 bytes / 512 bytes
+Disklabel <span class="nb">type</span>: gpt
+Disk identifier: 07BCD546-2A83-4F37-822F-C7E7B7B8811A
+
+Device     Start      End  Sectors Size Type
+/dev/vda1   2048     4095     2048   1M BIOS boot
+/dev/vda2   4096 52426751 52422656  25G Linux filesystem
+
+
+Disk /dev/vdb: 4 GiB, 4294967296 bytes, 8388608 sectors
+Units: sectors of 1 <span class="k">*</span> 512 <span class="o">=</span> 512 bytes
+Sector size <span class="o">(</span>logical/physical<span class="o">)</span>: 512 bytes / 512 bytes
+I/O size <span class="o">(</span>minimum/optimal<span class="o">)</span>: 512 bytes / 512 bytes
+
+
+Disk /dev/vdc: 4 GiB, 4294967296 bytes, 8388608 sectors
+Units: sectors of 1 <span class="k">*</span> 512 <span class="o">=</span> 512 bytes
+Sector size <span class="o">(</span>logical/physical<span class="o">)</span>: 512 bytes / 512 bytes
+I/O size <span class="o">(</span>minimum/optimal<span class="o">)</span>: 512 bytes / 512 bytes
+
+
+Disk /dev/vdd: 4 GiB, 4294967296 bytes, 8388608 sectors
+Units: sectors of 1 <span class="k">*</span> 512 <span class="o">=</span> 512 bytes
+Sector size <span class="o">(</span>logical/physical<span class="o">)</span>: 512 bytes / 512 bytes
+I/O size <span class="o">(</span>minimum/optimal<span class="o">)</span>: 512 bytes / 512 bytes
+</code></pre></div></div>
+<p><br />
+You can see above that <code class="highlighter-rouge">/dev/vda</code> is my OS drive and <code class="highlighter-rouge">/dev/vdb /dev/vdc /dev/vdd</code> are the disks we’ll use for our ZFS RAID. Make note of these names.</p>
+
+<p>Now we’ll create our RAIDz1 pool using the above disks, with <code class="highlighter-rouge">zfs-pool</code> as the pool name.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>zpool create zfs-pool raidz1 vdb vdc vdd
+</code></pre></div></div>
+<p><br />
+If you receive no error message, you’ve successfully created your pool. Now, check the status of your pool.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>zpool status
+</code></pre></div></div>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code> pool: zfs-pool
+ state: ONLINE
+  scan: none requested
+config:
+
+	NAME        STATE     READ WRITE CKSUM
+	zfs-pool    ONLINE       0     0     0
+	  raidz1-0  ONLINE       0     0     0
+	    vdb     ONLINE       0     0     0
+	    vdc     ONLINE       0     0     0
+	    vdd     ONLINE       0     0     0
+
+errors: No known data errors
+</code></pre></div></div>
+<p><br />
+The newly created pool should be already mounted at the root of your system as <code class="highlighter-rouge">/zfs-pool</code>.</p>
+
+<h3 id="step-2-install--configure-kvmqemu">Step 2: Install &amp; Configure KVM/QEMU</h3>
+
+<p>The below command will install all the components we need to get KVM up and running.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>apt <span class="nb">install </span>qemu-kvm libvirt-clients libvirt-daemon-system bridge-utils virt-manager
+</code></pre></div></div>
+<p><br />
+Next, we’ll configure the network bridge. This will allow your VMs to get a routable IP address on your local network.</p>
+
+<p>As of 18.04, Ubuntu deprecated <code class="highlighter-rouge">/etc/network/interfaces</code> and now encourages the use of a <code class="highlighter-rouge">yaml</code> file located at <code class="highlighter-rouge">/etc/netplan</code>. We’re going to be editing this file to enable the bridge.</p>
+
+<p>First, find the name of your primary network interface using the <code class="highlighter-rouge">ip a</code> command.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>ip a
+1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    <span class="nb">link</span>/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: ens3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc fq_codel state UP group default qlen 1000
+    <span class="nb">link</span>/ether 52:54:00:6e:a9:d6 brd ff:ff:ff:ff:ff:ff
+    inet 10.0.0.80/24 brd 10.0.0.255 scope global ens3
+       valid_lft forever preferred_lft forever
+    inet6 fe80::5054:ff:fe6e:a9d6/64 scope <span class="nb">link 
+       </span>valid_lft forever preferred_lft forever
+
+</code></pre></div></div>
+<p><br />
+We can see above that our main interface is <code class="highlighter-rouge">ens3</code>. Make note of this as we edit the files in <code class="highlighter-rouge">/etc/netplan</code>.</p>
+
+<p>Ubuntu has kindly created a default file for us at `/etc/netplan/50-cloud-init.yml’. Open this file in your favorite text editor and set the following parameters. (I’ve added comments next to the changes)</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>nano /etc/netplan/50-cloud-init.yml
+</code></pre></div></div>
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># This file is generated from information provided by</span>
+<span class="c1"># the datasource.  Changes to it will not persist across an instance.</span>
+<span class="c1"># To disable cloud-init's network configuration capabilities, write a file</span>
+<span class="c1"># /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg with the following:</span>
+<span class="c1"># network: {config: disabled}</span>
+<span class="na">network</span><span class="pi">:</span>
+    <span class="na">version</span><span class="pi">:</span> <span class="m">2</span>
+    <span class="na">ethernets</span><span class="pi">:</span>
+      <span class="na">ens9</span><span class="pi">:</span>  <span class="c1">#Your interface name</span>
+        <span class="na">dhcp4</span><span class="pi">:</span> <span class="s">no</span>   <span class="c1">#Indicates that we're setting a static IP address</span>
+        <span class="na">dhcp6</span><span class="pi">:</span> <span class="s">no</span>
+
+    <span class="na">bridges</span><span class="pi">:</span>
+      <span class="na">br0</span><span class="pi">:</span>
+        <span class="na">interfaces</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">ens9</span><span class="pi">]</span>   <span class="c1">#Your interface that the bridge will share</span>
+        <span class="na">dhcp4</span><span class="pi">:</span> <span class="s">no</span>
+        <span class="na">addresses</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">10.0.0.10/24</span><span class="pi">]</span>   <span class="c1">#Static IP of your server followed by netmask</span>
+        <span class="na">gateway4</span><span class="pi">:</span> <span class="s">10.0.0.251</span>   <span class="c1">#Your gateway address (usually your router)</span>
+        <span class="na">nameservers</span><span class="pi">:</span>
+          <span class="na">addresses</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">8.8.8.8</span><span class="pi">,</span> <span class="nv">8.8.4.4</span><span class="pi">]</span>  <span class="c1">#DNS servers</span>
+
+</code></pre></div></div>
+<p><br />
+Save your file and exit the text editor.</p>
+
+<p>Apply your changes:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>netplan apply
+</code></pre></div></div>
+<p><br />
+Confirm your configuration.</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>ip a
+1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    <span class="nb">link</span>/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: ens3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc fq_codel master br0 state UP group default qlen 1000
+    <span class="nb">link</span>/ether 54:bf:64:92:0b:74 brd ff:ff:ff:ff:ff:ff
+3: br0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP group default qlen 1000
+    <span class="nb">link</span>/ether 82:56:88:0d:dc:fb brd ff:ff:ff:ff:ff:ff
+    inet 10.0.0.10/24 brd 10.0.0.255 scope global br0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::8056:88ff:fe0d:dcfb/64 scope <span class="nb">link 
+       </span>valid_lft forever preferred_lft forever
+</code></pre></div></div>
+<p><br />
+Your new VMs will now be reachable within your network.</p>
+
+<h3 id="step-3-create-a-vm">Step 3: Create a VM</h3>
+
+<p>New virtual machines can be created and managed in the command line via the <code class="highlighter-rouge">virt-install</code> and <code class="highlighter-rouge">virsh</code> commmands. I recommend reading the man pages to get an idea of their full capabilites, but for now we’ll use them to create our first Centos7 VM.</p>
+
+<p>Download the latest Centos7 ISO file to your home directory using <code class="highlighter-rouge">wget</code>.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>wget http://isoredirect.centos.org/centos/7/isos/x86_64/CentOS-7-x86_64-DVD-1810.iso
+</code></pre></div></div>
+<p><br />
+The ISO file will download and notify you on completion. Once finished, create a folder called <code class="highlighter-rouge">images</code> and put our newly downloaded ISO there. You’ll likely be downloading a lot of these and your home directory will get cluttered quickly, so a little organization now will help you in the long run.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">mkdir</span> ~/images
+</code></pre></div></div>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">mv</span> ~/CentOS-7-x86_64-DVD-1810.iso ~/images/CentOS-7-x86_64-DVD-1810.iso
+</code></pre></div></div>
+
+<p>While we’re on the subject, let’s create a folder on our shiny new ZFS volume where we’ll store our VMs.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">mkdir</span> /zfs-pool/vm
+</code></pre></div></div>
+
+<p>Now we’re going to create our virtual machine in our ZFS volume using the newly downloaded ISO.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>virt-install <span class="nt">--name</span><span class="o">=</span>vm-centos7-01 <span class="nt">--vcpus</span><span class="o">=</span>1 <span class="nt">--memory</span><span class="o">=</span>1024 <span class="nt">--cdrom</span><span class="o">=</span>/home/[username]/images/CentOS-7-x86_64-DVD-1810.iso <span class="nt">--disk</span> <span class="nv">path</span><span class="o">=</span>/zfs-pool/vm-centos-01,size<span class="o">=</span>25 <span class="nt">--os-variant</span><span class="o">=</span>centos7.0 <span class="nt">--graphics</span> vnc,listen<span class="o">=</span>0.0.0.0 <span class="nt">--noautoconsole</span>
+</code></pre></div></div>
+<p>I’ll break down each one of these parameters:</p>
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>--name #Name of our new VM.
+--vcpus #Number of virtual CPU cores we're assigning to our VM
+--memory #Amount of RAM in MB being assigned
+--cdrom #Path to ISO
+--disk path #Desired location of VM. Be sure to choose the path of your ZFS filesystem.
+--disk size #Size of the virtual hard drive
+--os-variant #Helps KVM optimize performance for your guest OS.
+--graphics #Serves the installer over VNC so we can complete the graphical steps
+--listen #Serves VNC on localhost
+--noautoconsole #virt-install won't attempt to launch any graphical console outside VNC
+</code></pre></div></div>
+<p><br />
+Run the above command to begin creating the VM. It should give you the below result before returning you to a prompt.</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Starting install...
+Domain installation still in progress. You can reconnect to
+the console to complete the installation process.
+</code></pre></div></div>
+<p><br />
+We need to find out which port VNC is broadcasting on so we can complete the graphical Centos7 installer over VNC. To do this, run the following command.</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>virsh vncdisplay vm-centos7-01
+:4
+</code></pre></div></div>
+<p>In this case, the command returned <code class="highlighter-rouge">4</code>, which means our VNC is running in port 5904.</p>
+
+<p>From a computer on the network, open your favorite VNC client and connect to your hypervisor using its IP and port 5904. In our case it would be <code class="highlighter-rouge">10.0.0.10:5904</code>.</p>
+
+<p><img src="/assets/images/screenshots/vnc01.png" alt="vnc-01" class="img-responsive" />
+<br />
+<br />
+<br />
+<img src="/assets/images/screenshots/vnc02.png" alt="vnc-02" class="img-responsive" />
+<br />
+<br />
+From here you can complete the OS installation and set a static IP address. Further management can then be done over SSH.</p>
+
+<h3 id="step-4-managing-kvm-through-the-cli">Step 4: Managing KVM Through the CLI</h3>
+
+<p>Below are some useful commands for managing the state of your virtual machine from the hypervisor’s terminal. For a complete list of commands and options, I suggest you run <code class="highlighter-rouge">man virsh</code>.</p>
+
+<h4 id="list-virtual-machines">List Virtual Machines</h4>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>virsh list <span class="nt">--all</span>
+</code></pre></div></div>
+
+<h4 id="shutdown--start-guest">Shutdown &amp; Start Guest</h4>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>virsh shutdown vm-centos-01
+</code></pre></div></div>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>virsh start vm-centos-01
+</code></pre></div></div>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>virsh reboot vm-centos-01
+</code></pre></div></div>
+
+<h4 id="autostart-vm-with-hypervisor">Autostart VM with Hypervisor</h4>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>virsh autostart vm-centos-01
+</code></pre></div></div>
+
+<h3 id="step-5-managing-kvm-with-virt-manager">Step 5: Managing KVM with Virt-Manager</h3>
+
+<p>For those of you who want to avoid the command line, there’s a wonderful GUI tool called <code class="highlighter-rouge">virt-manager</code>, and it’s available in nearly every distro’s package manager. Let’s install it now on our Ubuntu Desktop machine.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>apt <span class="nb">install </span>virt-manager
+</code></pre></div></div>
+<p><br />
+In order to connect to our KVM hypervisor, we’ll have generate SSH keys on our desktop machine and copy them to the hypervisor. If you don’t already have SSH keys generated, open a terminal and generate an SSH key pair by running the command below and following the prompts.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>ssh-keygen
+Generating public/private rsa key pair.
+Enter file <span class="k">in </span>which to save the key <span class="o">(</span>/home/<span class="nv">$USER</span>/.ssh/id_rsa<span class="o">)</span>: 
+Created directory <span class="s1">'/home/$USER/.ssh'</span><span class="nb">.</span>
+Enter passphrase <span class="o">(</span>empty <span class="k">for </span>no passphrase<span class="o">)</span>: 
+Enter same passphrase again: 
+Your identification has been saved <span class="k">in</span> /home/<span class="nv">$USER</span>/.ssh/id_rsa.
+Your public key has been saved <span class="k">in</span> /home/<span class="nv">$USER</span>/.ssh/id_rsa.pub.
+The key fingerprint is:
+SHA256:D6wWmAEgpwxFeErFbGXs93fC53XSWPyycMXirrnzuPk <span class="nv">$USER</span>@ubuntu-1804
+The key<span class="s1">'s randomart image is:
++---[RSA 2048]----+
+|+=O.oo           |
+|=+.=..           |
+|o+. o          o |
+|.    = o      . =|
+|    o o S .  . *.|
+|       o + +.o*.+|
+|      o   o =+.+.|
+|     .      .=o  |
+|            BBE  |
++----[SHA256]-----+
+
+</span></code></pre></div></div>
+<p><br />
+Next, we’re going to send our SSH public key to the hypervisor by piping it through SSH. Subsitute the IP address in the below command for that of your hypervisor. You’ll be asked to enter the password for the server’s user account.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">cat</span> ~/.ssh/id_rsa.pub | ssh username@10.0.0.10 <span class="s2">"mkdir -p ~/.ssh &amp;&amp; cat &gt;&gt; ~/.ssh/authorized_keys"</span>
+</code></pre></div></div>
+<p><br />
+The above command fetches your generated public key, connects to your hypervisor with SSH, creates the <code class="highlighter-rouge">~/.ssh</code> directory, and pastes the key in the <code class="highlighter-rouge">~/.ssh/authorized_keys</code> file.</p>
+
+<p>Once your key is copied, you can open <code class="highlighter-rouge">virt-manager</code> and get connected. Open the application and select <code class="highlighter-rouge">File-&gt; Add Connection</code>.<br />
+<br />
+<img src="/assets/images/screenshots/virtmgr-01.png" alt="virtmgr-01" class="img-responsive" />
+<br />
+<br />
+Check both boxes and enter the username and hostname/IP address of the hypervisor, then click OK.<br />
+<br />
+<img src="/assets/images/screenshots/virtmgr-02.png" alt="virtmgr-02" class="img-responsive" />
+<br />
+<br />
+If everything went right, you should see your VM and any others you’ve created in the window. Double clicking on a VM will open a console and allow you to control the system, change settings, take snapshots, and just about anything else you’d want to do with your VM.<br />
+<br />
+<img src="/assets/images/screenshots/virtmgr-03.png" alt="virtmgr-03" class="img-responsive" /><br />
+<br />
+<br />
+You can even create entirely new VMs with <code class="highlighter-rouge">virt-manager</code>.<br />
+<br />
+<img src="/assets/images/screenshots/virtmgr-04.png" alt="virtmgr-04" class="img-responsive" />
+\</p>
+
+<h3 id="concluding-thoughts">Concluding Thoughts</h3>
+
+<p>You should now have a fully functioning KVM hypervisor running on top of the ZFS filesystem! As long as you set the location of your VMs to the ZFS pool, all your systems will benefit from the reliability and robust featureset of ZFS.</p>
+
+<p>This is meant to be a very base-level configuration, so you should do your research and implement stronger security and some sort of backup solution. I may be covering these in future posts, but in the mean time I’ll link some helpful resources below. As always, please reach out to me via email or in the comments below if you have questions, thoughts, or criticisms.</p>
+
+<p>Thanks for reading and happy hacking!</p>
+
+<h3 id="helpful-resources">Helpful Resources</h3>
+
+<p><a href="https://blog.programster.org/kvm-cheatsheet">KVM Cheatsheet</a> - Programster<br />
+<a href="https://www.thegeekdiary.com/solaris-zfs-command-line-reference-cheat-sheet/">ZFS command line reference</a> - The Geek Diary</p>
+
+:ET
